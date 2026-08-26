@@ -2,3 +2,4 @@ gradio
 garmin-fit-sdk
 pandas
 requests
+python-telegram-bot

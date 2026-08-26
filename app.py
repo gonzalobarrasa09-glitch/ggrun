@@ -3,7 +3,7 @@ import gradio as gr
 import pandas as pd
 from database import init_db, get_user_list, get_activities_df, get_laps_df, insert_parsed_activity, export_json_for_ai
 from fit_parser import parse_fit_file_safe
-
+from telegram_bot import launch_telegram_bot
 init_db()
 
 def process_and_save_fit(user_name, file_obj):
@@ -86,5 +86,6 @@ with gr.Blocks(title="Sports Data Hub") as app:
     btn_export.click(fn=export_json_for_ai, inputs=[user_select, include_laps_chk], outputs=[json_output])
 
 if __name__ == "__main__":
+    launch_telegram_bot()  # <- Inicia el bot en segundo plano
     port = int(os.environ.get("PORT", 7860))
     app.launch(server_name="0.0.0.0", server_port=port, css=custom_css)
