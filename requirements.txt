@@ -1,0 +1,4 @@
+gradio
+garmin-fit-sdk
+pandas
+requests
