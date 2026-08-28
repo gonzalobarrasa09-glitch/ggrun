@@ -95,6 +95,24 @@ def get_laps_df(activity_id):
     conn.close()
     return df
 
+def get_activities_choices(user_name):
+    """Genera las opciones para el selector múltiple de exportación JSON"""
+    df = get_activities_df(user_name)
+    if df.empty:
+        return []
+    choices = []
+    for _, row in df.iterrows():
+        choices.append((f"{row['Fecha']} | {row['Deporte'].capitalize()} ({row['Distancia (km)']} km)", str(row['ID'])))
+    return choices
+
+def delete_activity(activity_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM activity_laps WHERE activity_id = ?", (activity_id,))
+    cursor.execute("DELETE FROM activities WHERE id = ?", (activity_id,))
+    conn.commit()
+    conn.close()
+
 def insert_parsed_activity(user_name, filename, session, laps):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -133,18 +151,25 @@ def insert_parsed_activity(user_name, filename, session, laps):
     conn.close()
     return True, "OK"
 
-def export_json_for_ai(user_name, include_laps):
+def export_json_for_ai(user_name, include_laps, selected_ids):
+    if not selected_ids:
+        return json.dumps({"error": "No has seleccionado ninguna actividad para exportar."}, ensure_ascii=False)
+        
+    ids_tuple = tuple([int(i) for i in selected_ids])
+    placeholders = ','.join('?' for _ in ids_tuple)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
+    query = f'''
         SELECT a.id, a.start_time, a.sport, a.total_distance_km, a.total_duration_min,
                a.avg_pace, a.avg_hr, a.max_hr, a.total_ascent_m
         FROM activities a
         JOIN users u ON a.user_id = u.id
-        WHERE u.name = ?
+        WHERE u.name = ? AND a.id IN ({placeholders})
         ORDER BY a.start_time DESC
-    ''', (user_name,))
+    '''
     
+    cursor.execute(query, (user_name,) + ids_tuple)
     act_rows = cursor.fetchall()
     activities_list = []
     
@@ -189,6 +214,6 @@ def export_json_for_ai(user_name, include_laps):
     return json.dumps({
         "usuario": user_name,
         "fecha_exportacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "total_actividades": len(activities_list),
+        "total_actividades_exportadas": len(activities_list),
         "actividades": activities_list
     }, indent=2, ensure_ascii=False)
