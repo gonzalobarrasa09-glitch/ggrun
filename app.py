@@ -12,10 +12,10 @@ def refresh_ui(user_name):
     """Devuelve el DataFrame actualizado y la lista de opciones para el selector JSON"""
     return get_activities_df(user_name), gr.update(choices=get_activities_choices(user_name))
 
-def on_page_load(request: gr.Request, user_name):
-    strava_msg, _ = handle_strava_callback(request)
+def on_page_load(user_name):
+    """Carga siempre la base de datos actualizada al abrir o refrescar la web"""
     df, choices_update = refresh_ui(user_name)
-    return strava_msg, df, choices_update
+    return df, choices_update
 
 def process_and_save_fit_ui(user_name, file_obj):
     if not file_obj:
@@ -74,11 +74,6 @@ with gr.Blocks(title="Sports Data Hub") as app:
         user_select = gr.Dropdown(choices=get_user_list(), value="Gonzalo", label="Usuario Activo", interactive=True)
     
     with gr.Tabs():
-        with gr.TabItem("Sincronizar con Strava"):
-            gr.Markdown("### Conecta tu cuenta para importar entrenamientos automáticamente")
-            strava_btn_html = gr.HTML(value=get_strava_auth_url("Gonzalo"))
-            strava_status = gr.Markdown("Estado: Esperando conexión.")
-
         with gr.TabItem("Carga Manual (.FIT)"):
             with gr.Row():
                 with gr.Column(scale=1):
@@ -108,16 +103,11 @@ with gr.Blocks(title="Sports Data Hub") as app:
             json_output = gr.Code(label="Dataset Resultante", language="json")
     
     # Eventos de UI
-    user_select.change(fn=get_strava_auth_url, inputs=[user_select], outputs=[strava_btn_html])
     user_select.change(fn=refresh_ui, inputs=[user_select], outputs=[activities_table, export_selection])
-    
-    app.load(fn=on_page_load, inputs=[user_select], outputs=[strava_status, activities_table, export_selection])
-    
+    app.load(fn=on_page_load, inputs=[user_select], outputs=[activities_table, export_selection])
     btn_upload.click(fn=process_and_save_fit_ui, inputs=[user_select, fit_input], outputs=[upload_output, activities_table, debug_output, export_selection])
-    
     activities_table.select(fn=get_activity_details_ui, inputs=[user_select], outputs=[detail_panel, laps_table, detail_title, selected_act_id])
     btn_delete.click(fn=delete_activity_ui, inputs=[selected_act_id, user_select], outputs=[activities_table, detail_panel, export_selection, selected_act_id])
-    
     btn_export.click(fn=export_json_for_ai, inputs=[user_select, include_laps_chk, export_selection], outputs=[json_output])
 
 if __name__ == "__main__":
