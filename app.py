@@ -4,7 +4,6 @@ import pandas as pd
 from database import (init_db, get_user_list, get_activities_df, get_laps_df, 
                       insert_parsed_activity, export_json_for_ai, delete_activity, get_activities_choices)
 from fit_parser import parse_fit_file_safe
-from strava_integration import get_strava_auth_url, handle_strava_callback
 from telegram_bot import launch_telegram_bot
 
 init_db()
