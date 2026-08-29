@@ -1,23 +1,29 @@
 import os
 import gradio as gr
 import pandas as pd
-from database import (init_db, get_user_list, get_activities_df, get_laps_df, 
+from database import (init_db, get_activities_df, get_laps_df, 
                       insert_parsed_activity, export_json_for_ai, delete_activity, get_activities_choices)
 from fit_parser import parse_fit_file_safe
 from telegram_bot import launch_telegram_bot
 
 init_db()
 
-def refresh_ui(user_name):
-    """Devuelve el DataFrame actualizado y la lista de opciones para el selector JSON"""
+# --- FUNCIONES ADAPTADAS AL USUARIO LOGEADO ---
+
+def refresh_ui(request: gr.Request):
+    """Obtiene los datos del usuario que ha iniciado sesión"""
+    user_name = request.username
     return get_activities_df(user_name), gr.update(choices=get_activities_choices(user_name))
 
-def on_page_load(user_name):
-    """Carga siempre la base de datos actualizada al abrir o refrescar la web"""
-    df, choices_update = refresh_ui(user_name)
-    return df, choices_update
+def on_page_load(request: gr.Request):
+    """Se ejecuta al entrar a la web. Detecta quién eres y carga tus datos."""
+    user_name = request.username
+    df, choices_update = refresh_ui(request)
+    welcome_msg = f"👤 **Bienvenido/a, {user_name}** - Tu espacio personal de entrenamiento."
+    return welcome_msg, df, choices_update
 
-def process_and_save_fit_ui(user_name, file_obj):
+def process_and_save_fit_ui(file_obj, request: gr.Request):
+    user_name = request.username
     if not file_obj:
         return "<div style='color: #d32f2f;'>Seleccione un archivo.</div>", gr.update(), "", gr.update()
     
@@ -35,10 +41,11 @@ def process_and_save_fit_ui(user_name, file_obj):
         <p>Distancia: {session['total_distance_km']} km | Tiempo: {session['total_duration_min']} min | Ritmo: {session['avg_pace']}</p>
     </div>
     '''
-    df, choices_update = refresh_ui(user_name)
+    df, choices_update = refresh_ui(request)
     return status_html, df, debug_info, choices_update
 
-def get_activity_details_ui(evt: gr.SelectData, user_name):
+def get_activity_details_ui(evt: gr.SelectData, request: gr.Request):
+    user_name = request.username
     row_idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
     df = get_activities_df(user_name)
     
@@ -49,11 +56,17 @@ def get_activity_details_ui(evt: gr.SelectData, user_name):
     laps_df = get_laps_df(act_id)
     return gr.update(visible=True), laps_df, f"### Desglose de Tramos (Actividad #{act_id})", act_id
 
-def delete_activity_ui(act_id, user_name):
+def delete_activity_ui(act_id, request: gr.Request):
     if act_id:
         delete_activity(act_id)
-    df, choices_update = refresh_ui(user_name)
+    df, choices_update = refresh_ui(request)
     return df, gr.update(visible=False), choices_update, None
+
+def export_json_ui(include_laps_chk, export_selection, request: gr.Request):
+    user_name = request.username
+    return export_json_for_ai(user_name, include_laps_chk, export_selection)
+
+# --- INTERFAZ GRÁFICA ---
 
 custom_css = '''
 footer {display: none !important;}
@@ -70,8 +83,8 @@ with gr.Blocks(title="Sports Data Hub") as app:
     </div>
     ''')
     
-    with gr.Row():
-        user_select = gr.Dropdown(choices=get_user_list(), value="Gonzalo", label="Usuario Activo", interactive=True)
+    # Hemos cambiado el desplegable por un mensaje de bienvenida fijo
+    user_greeting = gr.Markdown("👤 Cargando usuario...")
     
     with gr.Tabs():
         with gr.TabItem("Carga Manual (.FIT)"):
@@ -88,7 +101,8 @@ with gr.Blocks(title="Sports Data Hub") as app:
         with gr.TabItem("Análisis e Historial"):
             with gr.Row():
                 with gr.Column(scale=2):
-                    activities_table = gr.DataFrame(value=get_activities_df("Gonzalo"), label="Registro Histórico", interactive=False)
+                    # Inicia vacío, se llenará al cargar la página según quién se loguee
+                    activities_table = gr.DataFrame(label="Registro Histórico", interactive=False)
                 with gr.Column(scale=1):
                     detail_panel = gr.Group(visible=False)
                     with detail_panel:
@@ -97,26 +111,27 @@ with gr.Blocks(title="Sports Data Hub") as app:
                         btn_delete = gr.Button("🗑️ Eliminar Actividad", variant="stop")
 
         with gr.TabItem("Exportación de Datos"):
-            export_selection = gr.CheckboxGroup(label="Selecciona las actividades a exportar", choices=get_activities_choices("Gonzalo"))
+            export_selection = gr.CheckboxGroup(label="Selecciona las actividades a exportar")
             include_laps_chk = gr.Checkbox(label="Incluir métricas detalladas por tramo", value=True)
             btn_export = gr.Button("Generar Exportación JSON", variant="primary")
             json_output = gr.Code(label="Dataset Resultante", language="json")
     
-    # Eventos de UI
-    user_select.change(fn=refresh_ui, inputs=[user_select], outputs=[activities_table, export_selection])
-    app.load(fn=on_page_load, inputs=[user_select], outputs=[activities_table, export_selection])
-    btn_upload.click(fn=process_and_save_fit_ui, inputs=[user_select, fit_input], outputs=[upload_output, activities_table, debug_output, export_selection])
-    activities_table.select(fn=get_activity_details_ui, inputs=[user_select], outputs=[detail_panel, laps_table, detail_title, selected_act_id])
-    btn_delete.click(fn=delete_activity_ui, inputs=[selected_act_id, user_select], outputs=[activities_table, detail_panel, export_selection, selected_act_id])
-    btn_export.click(fn=export_json_for_ai, inputs=[user_select, include_laps_chk, export_selection], outputs=[json_output])
+    # Eventos de UI: Ya NO le pasamos el `user_select` porque Gradio inyecta el `gr.Request` solo
+    app.load(fn=on_page_load, inputs=None, outputs=[user_greeting, activities_table, export_selection])
+    btn_upload.click(fn=process_and_save_fit_ui, inputs=[fit_input], outputs=[upload_output, activities_table, debug_output, export_selection])
+    activities_table.select(fn=get_activity_details_ui, inputs=None, outputs=[detail_panel, laps_table, detail_title, selected_act_id])
+    btn_delete.click(fn=delete_activity_ui, inputs=[selected_act_id], outputs=[activities_table, detail_panel, export_selection, selected_act_id])
+    btn_export.click(fn=export_json_ui, inputs=[include_laps_chk, export_selection], outputs=[json_output])
 
 if __name__ == "__main__":
     launch_telegram_bot()
     port = int(os.environ.get("PORT", 7860))
     
-    app.launch(
-        server_name="0.0.0.0", 
-        server_port=port, 
-        css=custom_css, 
-        auth=[("gonzalo", "1234"), ("gay", "1234")]
-    )
+    # AQUÍ DEFINES LAS CUENTAS (Usuario, Contraseña)
+    # Ten en cuenta que si usaste "Gonzalo" antes, la primera letra mayúscula importa
+    USUARIOS = [
+        ("Gonzalo", "1234"),
+        ("Gay", "0000")
+    ]
+    
+    app.launch(server_name="0.0.0.0", server_port=port, css=custom_css, auth=USUARIOS)
