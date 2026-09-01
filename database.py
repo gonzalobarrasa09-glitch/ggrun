@@ -52,6 +52,16 @@ def init_db():
         )
     ''')
 
+    # NUEVA TABLA: Planes semanales
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS weekly_plans (
+            user_id INTEGER PRIMARY KEY,
+            plan_data TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
+
     cursor.execute("INSERT OR IGNORE INTO users (name) VALUES ('Gonzalo'), ('Usuario2')")
     conn.commit()
     conn.close()
@@ -96,7 +106,6 @@ def get_laps_df(activity_id):
     return df
 
 def get_activities_choices(user_name):
-    """Genera las opciones para el selector múltiple de exportación JSON"""
     df = get_activities_df(user_name)
     if df.empty:
         return []
@@ -217,3 +226,47 @@ def export_json_for_ai(user_name, include_laps, selected_ids):
         "total_actividades_exportadas": len(activities_list),
         "actividades": activities_list
     }, indent=2, ensure_ascii=False)
+
+# --- NUEVAS FUNCIONES PARA EL PLAN SEMANAL ---
+
+def save_weekly_plan(user_name, plan_dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE name = ?", (user_name,))
+    user_row = cursor.fetchone()
+    
+    if user_row:
+        user_id = user_row[0]
+        cursor.execute('''
+            INSERT OR REPLACE INTO weekly_plans (user_id, plan_data, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (user_id, json.dumps(plan_dict)))
+        conn.commit()
+    conn.close()
+
+def get_weekly_plan(user_name):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT wp.plan_data 
+        FROM weekly_plans wp
+        JOIN users u ON wp.user_id = u.id
+        WHERE u.name = ?
+    ''', (user_name,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return json.loads(row[0])
+    return None
+
+def delete_weekly_plan(user_name):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE name = ?", (user_name,))
+    user_row = cursor.fetchone()
+    
+    if user_row:
+        cursor.execute('DELETE FROM weekly_plans WHERE user_id = ?', (user_row[0],))
+        conn.commit()
+    conn.close()
